@@ -304,7 +304,7 @@ async function doLogin(){
   const cfg=window.SUPABASE_CONFIG;
   if(!cfg){start(localDB());toast("Local mode: data is saved on this device only. See README to share it.");return}
   try{
-    await loadJS("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js");
+    await loadJS("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js");
     sb=supabase.createClient(cfg.url,cfg.anonKey);
     const go=sess=>{
       $("#login").style.display=sess?"none":"block";
