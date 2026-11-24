@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tyre Records</title>
+<style>
+:root{--bg:#f5f8f9;--card:#fff;--ink:#1b2a33;--mute:#4a5a63;--line:#c3d0d6;--acc:#0f4c5c;--accink:#fff;--ok:#1d6b3a;--warn:#8a5a00;--bad:#a12626;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10181c;--card:#18242a;--ink:#e6eef1;--mute:#a3b4bb;--line:#33454d;--acc:#5fb4c9;--accink:#08222a;--ok:#6fd195;--warn:#f0c15a;--bad:#ff8a8a}}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 Inter,system-ui,Arial,sans-serif}
+.w{max-width:960px;margin:0 auto;padding:16px}
+h1{font-size:24px;margin:0 0 4px}h2{font-size:15px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.05em;color:var(--acc)}
+.sub{color:var(--mute);margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+.bar{display:flex;gap:8px;flex-wrap:wrap}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;min-height:44px;box-sizing:border-box;width:100%}
+.bar input{flex:1;min-width:200px;font-size:17px}
+input[type=checkbox]{width:auto;min-height:0;margin:0}.ck{flex-direction:row;align-items:center;gap:8px;font-size:14px;color:var(--ink);font-weight:400}
+button{font:inherit;font-weight:600;min-height:44px;padding:0 18px;border-radius:8px;border:1px solid var(--acc);background:var(--acc);color:var(--accink);cursor:pointer}
+button.s{background:transparent;color:var(--acc)}
+.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600;color:var(--mute)}
+.pill{display:inline-block;padding:3px 10px;border-radius:99px;border:1px solid currentColor;font-weight:700;font-size:13px}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;white-space:nowrap}th{background:var(--bg)}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.row{margin-top:10px}.lnk{cursor:pointer;color:var(--acc);font-weight:600;text-decoration:underline}
+#msg{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:12px;border-radius:8px;display:none;z-index:5}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+<div class="w">
+<h1>Tyre Records</h1>
+<p class="sub">Type or scan a serial number. If the tyre exists, its card opens; if not, you can create it.</p>
+<div class="card"><div class="bar"><input id="q" placeholder="Serial number, e.g. DOT or TY-0001" autocomplete="off" autocapitalize="characters"><button id="go">Open tyre</button><button id="rep" class="s">Report</button></div></div>
+<div id="login" class="card" style="display:none"><h2>Sign in</h2><div class="g"><label>Email<input id="l_email" type="email" autocomplete="username"></label><label>Password<input id="l_pass" type="password" autocomplete="current-password"></label></div><div class="row"><button onclick="doLogin()">Sign in</button></div></div>
+<div id="rpt"></div>
+<div id="view"></div>
+<div id="list"></div>
+</div>
+<div id="msg"></div>
+<script src="config.js"></script>
+<script>
+const POS=["1L","1R","2L","2L-in","2R-in","2R","3L","3L-in","3R-in","3R","SP1","SP2"];
+const TPOS=["T1-LO","T1-LI","T1-RI","T1-RO","T2-LO","T2-LI","T2-RI","T2-RO","T3-LO","T3-LI","T3-RI","T3-RO","TSP"];
+const EVT=["Inspection","Rotation","Puncture repair","Pressure check","Other"];
+const REASON=["Worn out","Puncture","Sidewall damage","Uneven wear","Temporary removal","Sent for retread","Other"];
+const DEST=["Store (reusable)","Sent for retread","Scrapped","Sold"];
+const TYPES=["New","Retread","Second-hand"];
+let col=null,tyres={},cur=null,pending=null,ready=false,filt="All";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const key=s=>s.trim().toUpperCase().replace(/[^A-Z0-9_.~:@+-]/g,"-");
+const today=()=>new Date().toISOString().slice(0,10);
+const v=id=>{const e=document.getElementById(id);return e?e.value.trim():""};
+const ck=id=>{const e=document.getElementById(id);return !!(e&&e.checked)};
+function toast(t){const m=$("#msg");m.textContent=t;m.style.display="block";clearTimeout(toast.t);toast.t=setTimeout(()=>m.style.display="none",4500)}
+function fld(id,label,val,type,opts){
+  if(opts)return `<label>${label}<select id="${id}">${opts.map(o=>`<option${o===val?" selected":""}>${esc(o)}</option>`).join("")}</select></label>`;
+  return `<label>${label}<input id="${id}" type="${type||"text"}" value="${esc(val)}"></label>`;
+}
+function moves(t){
+  if(t.moves)return t.moves;
+  const m=(t.fittings||[]).map(x=>Object.assign({type:"fit"},x));
+  if(t.removal)m.push({type:"out",dest:"Scrapped",date:t.removal.date,odo:t.removal.odo,tread:t.removal.tread,reason:t.removal.reason,by:t.removal.by});
+  return m;
+}
+function state(t){
+  const l=moves(t).slice(-1)[0];
+  if(!l)return {k:"store",txt:"In store",c:"var(--warn)"};
+  if(l.type==="fit")return {k:"fitted",txt:`Fitted: ${l.kind==="Trailer"?"trailer ":""}${l.plate} ${l.pos}${l.temp?" (temporary)":""}`,c:"var(--ok)",l};
+  if(l.type==="ret")return {k:"store",txt:"In store (retreaded)",c:"var(--warn)"};
+  if(l.dest==="Sent for retread")return {k:"retread",txt:"At retread",c:"var(--acc)"};
+  if(l.dest==="Scrapped"||l.dest==="Sold")return {k:"final",txt:l.dest,c:"var(--bad)"};
+  return {k:"store",txt:"In store",c:"var(--warn)"};
+}
+function stats(t){
+  const m=moves(t);let km=0,rt=0,open=null;
+  m.forEach(x=>{
+    if(x.type==="fit")open=x;
+    else if(x.type==="out"&&open){const d=Number(x.odo)-Number(open.odo);if(x.odo!==""&&open.odo!==""&&!isNaN(d)&&d>=0)km+=d;open=null}
+    else if(x.type==="ret")rt++;
+  });
+  return {km,rt};
+}
+async function put(id,patch,ok){
+  try{document.activeElement.blur()}catch(e){}
+  if(!col){toast("Saving isn’t available. Open this page while signed in.");return false}
+  try{await col.doc(id).update(patch);toast(ok||"Saved");return true}catch(e){toast("Could not save: "+(e.message||e.code));return false}
+}
+function openTyre(id){cur=id;pending=null;render();window.scrollTo(0,0)}
+function find(){
+  const raw=$("#q").value;if(!raw.trim())return;
+  const id=key(raw);
+  if(tyres[id])openTyre(id);else{cur=null;pending={id,serial:raw.trim().toUpperCase()};render()}
+}
+function newForm(){
+  return `<div class="card"><h2>No card found for ${esc(pending.serial)}</h2><p class="sub">Fill in the details to create the tyre card.</p>
+  <div class="g">${fld("n_brand","Brand and model","")}${fld("n_size","Size and ply rating","")}${fld("n_type","Type","New","",TYPES)}${fld("n_sup","Supplier","")}${fld("n_inv","Invoice no.","")}${fld("n_date","Date received",today(),"date")}${fld("n_cost","Cost","","number")}${fld("n_by","Received by","")}</div>
+  <div class="row"><button onclick="doCreate()">Create card</button></div></div>`;
+}
+async function doCreate(){
+  if(!col){toast("Saving isn’t available. Open this page while signed in.");return}
+  const d={serial:pending.serial,brand:v("n_brand"),size:v("n_size"),type:v("n_type"),supplier:v("n_sup"),invoice:v("n_inv"),received:v("n_date"),cost:v("n_cost"),receivedBy:v("n_by"),moves:[],events:[],created:new Date().toISOString()};
+  try{await col.doc(pending.id).set(d);tyres[pending.id]=d;toast("Card created");openTyre(pending.id)}catch(e){toast("Could not save: "+(e.message||e.code))}
+}
+function table(heads,rows){
+  if(!rows.length)return `<p class="sub">None yet.</p>`;
+  return `<div class="tw"><table><tr>${heads.map(h=>`<th>${h}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>`;
+}
+function moveRow(x){
+  if(x.type==="fit")return [x.date,"Fitted"+(x.kind==="Trailer"?" (trailer"+(x.hitch?" on "+x.hitch:"")+")":"")+(x.temp?" (temporary)":"")+(x.repl?" · replacing "+x.repl:""),`${x.plate} ${x.pos}`,x.odo,x.tread,"",x.by];
+  if(x.type==="out")return [x.date,"Removed → "+x.dest+(x.replBy?" · replaced by "+x.replBy:""),x.plate?`${x.plate} ${x.pos}`:"",x.odo,x.tread,[x.reason||"",infoTxt(x.info)].filter(Boolean).join(" · "),x.by];
+  return [x.date,"Returned from retread","","","",[x.cost?"Cost "+x.cost:"",x.war?"Warranty "+x.war:"",x.note||""].filter(Boolean).join(" · "),x.by];
+}
+const LAB={x_loc:"Location",x_cond:"Condition",x_note:"Notes",x_rt:"Retreader",x_exp:"Expected back",x_cost:"Quoted cost",x_pat:"Pattern",x_how:"Disposal",x_appr:"Approved by",x_buyer:"Buyer",x_price:"Price",x_inv:"Invoice"};
+function infoTxt(i){return Object.keys(i||{}).map(k=>LAB[k]+": "+i[k]).join(", ")}
+function infoOf(){const o={};Object.keys(LAB).forEach(k=>{const e=document.getElementById(k);if(e&&e.value.trim())o[k]=e.value.trim()});return o}
+function destPanel(d){
+  let t,f;
+  if(d==="Sent for retread"){t="Retread details";f=fld("x_rt","Retreader / company","")+fld("x_exp","Expected return date","","date")+fld("x_cost","Quoted cost","","number")+fld("x_pat","Retread pattern / type","")+fld("x_note","Notes","")}
+  else if(d==="Scrapped"){t="Scrap details";f=fld("x_how","Disposal method","Taken to dump","",["Taken to dump","Sold as scrap","Collected by supplier (warranty)","Other"])+fld("x_cond","Condition of the tyre","")+fld("x_appr","Approved by","")+fld("x_note","Notes","")}
+  else if(d==="Sold"){t="Sale details";f=fld("x_buyer","Buyer","")+fld("x_price","Sale price","","number")+fld("x_inv","Invoice / receipt no.","")+fld("x_appr","Approved by","")}
+  else{t="Store details";f=fld("x_loc","Store location / shelf","")+fld("x_cond","Condition","Good","",["Good","Fair","Needs repair"])+fld("x_note","Notes","")}
+  return `<div style="border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:12px"><h2 style="margin-bottom:8px">${t}</h2><div class="g">${f}</div></div>`;
+}
+function posSwitch(){const k=v("b_kind");document.getElementById("b_pos").innerHTML=(k==="Trailer"?TPOS:POS).map(o=>`<option>${o}</option>`).join("");document.getElementById("b_hw").style.display=k==="Trailer"?"":"none"}
+function destSwitch(){document.getElementById("o_extra").innerHTML=destPanel(v("o_dest"))}
+function cardView(id){
+  const t=tyres[id],st=state(t),sx=stats(t),m=moves(t),e=t.events||[];
+  let act="";
+  if(st.k==="fitted"){
+    act=`<div class="card"><h2>Remove from truck or trailer</h2><p class="sub">Currently on ${esc((st.l.kind||"truck").toLowerCase())} ${esc(st.l.plate)} ${esc(st.l.pos)}. Choose where it goes, and fit a replacement if needed.</p>
+    <div class="g">${fld("o_date","Date removed",today(),"date")}${fld("o_odo","Odometer out","","number")}${fld("o_tread","Tread now (mm)","","number")}<label>Where does it go?<select id="o_dest" onchange="destSwitch()">${DEST.map(o=>`<option>${o}</option>`).join("")}</select></label>${fld("o_reason","Reason","","",REASON)}${fld("o_by","Done by","")}
+    ${fld("o_repl","Replacement tyre serial (optional)","")}</div>
+    <div id="o_extra">${destPanel("Store (reusable)")}</div>
+    <div class="row"><label class="ck"><input type="checkbox" id="o_temp" checked>The replacement is temporary (this tyre is expected back)</label></div>
+    <div class="row"><button onclick="doRemove('${id}')">Record removal</button></div></div>`;
+  }else if(st.k==="retread"){
+    act=`<div class="card"><h2>Return from retread</h2><p class="sub">${esc(infoTxt(moves(t).slice(-1)[0].info)||"Sent for retread.")}</p><div class="g">${fld("r_date","Date returned",today(),"date")}${fld("r_cost","Retread cost","","number")}${fld("r_war","Warranty (months / km)","")}${fld("r_note","Notes","")}${fld("r_by","Received by","")}</div><div class="row"><button onclick="doReturn('${id}')">Back in store</button></div></div>`;
+  }else if(st.k==="store"){
+    act=`<div class="card"><h2>Fit to a truck or trailer</h2><div class="g">${fld("b_date","Date",today(),"date")}<label>Fit to<select id="b_kind" onchange="posSwitch()"><option>Truck</option><option>Trailer</option></select></label>${fld("b_plate","Plate / fleet no.","")}<label>Position<select id="b_pos">${POS.map(o=>`<option>${o}</option>`).join("")}</select></label>${fld("b_odo","Odometer in","","number")}${fld("b_tread","Tread (mm)","","number")}${fld("b_by","Fitted by","")}${fld("b_repl","Replacing tyre serial (optional)","")}<div id="b_hw" style="display:none">${fld("b_hitch","Coupled to truck (plate)","")}</div></div>
+    <div class="row"><label class="ck"><input type="checkbox" id="b_temp">Temporary (fitted while another tyre is away)</label></div><div class="row"><button onclick="doFit('${id}')">Fit tyre</button></div></div>`;
+  }else{
+    act=`<div class="card"><p class="sub" style="margin:0">This tyre is ${esc(st.txt.toLowerCase())}. If that was a mistake, use “Undo last movement” below.</p></div>`;
+  }
+  return `<div class="card"><div class="top"><div><h1 style="margin:0">${esc(t.serial)}</h1><span class="pill" style="color:${st.c}">${esc(st.txt)}</span>
+  <div class="sub" style="margin:6px 0 0">Total km: ${sx.km} · Retreads: ${sx.rt}</div></div><button class="s" onclick="goClose()">Close</button></div>
+  <h2>Identity</h2><div class="g">${fld("a_brand","Brand and model",t.brand)}${fld("a_size","Size and ply rating",t.size)}${fld("a_type","Type",t.type,"",TYPES)}${fld("a_sup","Supplier",t.supplier)}${fld("a_inv","Invoice no.",t.invoice)}${fld("a_date","Date received",t.received,"date")}${fld("a_cost","Cost",t.cost,"number")}${fld("a_by","Received by",t.receivedBy)}</div>
+  <div class="row"><button class="s" onclick="doSaveA('${id}')">Save identity changes</button></div></div>
+  ${act}
+  <div class="card"><h2>Movement history</h2>${table(["Date","Movement","Truck / position","Odometer","Tread (mm)","Notes","By"],m.map(moveRow))}
+  ${m.length?`<div class="row"><button class="s" onclick="doUndo('${id}')">Undo last movement</button></div>`:""}</div>
+  <div class="card"><h2>Inspection or event</h2><div class="g">${fld("c_date","Date",today(),"date")}${fld("c_evt","Event",EVT[0],"",EVT)}${fld("c_psi","Pressure (psi)","","number")}${fld("c_tread","Tread (mm)","","number")}${fld("c_odo","Odometer","","number")}${fld("c_note","Notes / cost","")}${fld("c_by","Done by","")}</div>
+  <div class="row"><button onclick="doEvt('${id}')">Add event</button></div>${table(["Date","Event","Pressure","Tread","Odometer","Notes / cost","By"],e.map(x=>[x.date,x.evt,x.psi,x.tread,x.odo,x.note,x.by]))}</div>`;
+}
+function goClose(){cur=null;render()}
+function doSaveA(id){put(id,{brand:v("a_brand"),size:v("a_size"),type:v("a_type"),supplier:v("a_sup"),invoice:v("a_inv"),received:v("a_date"),cost:v("a_cost"),receivedBy:v("a_by")},"Identity saved")}
+function doFit(id){
+  if(!v("b_plate")){toast("Enter the truck plate");return}
+  put(id,{moves:[...moves(tyres[id]),{type:"fit",kind:v("b_kind"),hitch:v("b_hitch").toUpperCase(),date:v("b_date"),plate:v("b_plate").toUpperCase(),pos:v("b_pos"),odo:v("b_odo"),tread:v("b_tread"),by:v("b_by"),temp:ck("b_temp"),repl:v("b_repl").toUpperCase()}]},"Tyre fitted");
+}
+async function doRemove(id){
+  const t=tyres[id],st=state(t),l=st.l,dest=v("o_dest"),rs=v("o_repl");
+  let rid=null;
+  if(rs){
+    rid=key(rs);const r=tyres[rid];
+    if(!r){toast("Replacement "+rs.toUpperCase()+" has no card yet. Create it first.");return}
+    if(rid===id){toast("The replacement must be a different tyre");return}
+    if(state(r).k!=="store"){toast("Replacement is not available (it is "+state(r).txt.toLowerCase()+")");return}
+  }
+  if(!confirm("Record this removal"+(rs?" and fit "+rs.toUpperCase()+" in its place":"")+"?"))return;
+  const out={type:"out",kind:l.kind,date:v("o_date"),plate:l.plate,pos:l.pos,odo:v("o_odo"),tread:v("o_tread"),dest,reason:v("o_reason"),by:v("o_by"),replBy:rs?tyres[rid].serial:"",info:infoOf()};
+  if(!await put(id,{moves:[...moves(t),out]},"Removal recorded"))return;
+  if(rid){
+    const f={type:"fit",kind:l.kind,hitch:l.hitch,date:v("o_date"),plate:l.plate,pos:l.pos,odo:v("o_odo"),tread:"",by:v("o_by"),temp:ck("o_temp"),repl:t.serial};
+    await put(rid,{moves:[...moves(tyres[rid]),f]},"Removed, and "+tyres[rid].serial+" fitted"+(f.temp?" as temporary":""));
+  }
+}
+function doReturn(id){put(id,{moves:[...moves(tyres[id]),{type:"ret",date:v("r_date"),cost:v("r_cost"),note:v("r_note"),war:v("r_war"),by:v("r_by")}]},"Returned to store")}
+function doUndo(id){
+  if(!confirm("Undo the last movement of this tyre?"))return;
+  put(id,{moves:moves(tyres[id]).slice(0,-1)},"Last movement undone. If a replacement was fitted, check that tyre too.");
+}
+function setFilt(x){filt=x;render()}
+function listView(){
+  const all=Object.keys(tyres).sort((a,b)=>(tyres[b].created||"").localeCompare(tyres[a].created||""));
+  const map={"In store":"store","Fitted":"fitted","At retread":"retread","Scrapped / sold":"final"};
+  const ids=all.filter(i=>filt==="All"||state(tyres[i]).k===map[filt]);
+  if(!all.length)return `<div class="card"><h2>All tyres</h2><p class="sub">${ready?"No tyres recorded yet. Search for a serial number above to create the first card.":"Loading…"}</p></div>`;
+  const opts=["All",...Object.keys(map)];
+  return `<div class="card"><div class="top"><h2 style="margin:0">All tyres (${ids.length})</h2><select style="width:auto" onchange="setFilt(this.value)">${opts.map(o=>`<option${o===filt?" selected":""}>${o}</option>`).join("")}</select></div>
+  <div class="tw"><table><tr><th>Serial</th><th>Brand</th><th>Size</th><th>Status</th></tr>${ids.map(i=>{const t=tyres[i];return `<tr><td><span class="lnk" onclick="openTyre('${i}')">${esc(t.serial)}</span></td><td>${esc(t.brand)}</td><td>${esc(t.size)}</td><td>${esc(state(t).txt)}</td></tr>`}).join("")}</table></div></div>`;
+}
+function render(){
+  if(document.getElementById("rp_out"))refReport();
+  $("#view").innerHTML=cur&&tyres[cur]?cardView(cur):(pending?newForm():"");
+  $("#list").innerHTML=cur?"":listView();
+}
+let rptText="";
+function rows(){return Object.keys(tyres).map(i=>{const t=tyres[i];return {t,st:state(t),sx:stats(t)}})}
+function lastAct(t){let d="";moves(t).forEach(x=>{if(x.date>d)d=x.date});(t.events||[]).forEach(x=>{if(x.date>d)d=x.date});return d}
+function buildReport(plate){
+  const R=rows(),L=[],P=plate.trim().toUpperCase(),n=k=>R.filter(r=>r.st.k===k).length;
+  const nm=r=>r.t.serial+(r.t.brand?" ("+r.t.brand+(r.t.size?" "+r.t.size:"")+")":"");
+  L.push("TYRE REPORT "+today()+(P?" - truck "+P:""));L.push("");
+  if(!P){
+    L.push("SUMMARY");L.push("Total tyres: "+R.length);L.push("Fitted: "+n("fitted")+" (temporary: "+R.filter(r=>r.st.k==="fitted"&&r.st.l.temp).length+")");
+    L.push("In store: "+n("store"));L.push("At retread: "+n("retread"));L.push("Scrapped or sold: "+n("final"));L.push("");
+  }
+  const fit=R.filter(r=>r.st.k==="fitted"&&(!P||r.st.l.plate===P)),by={};
+  fit.forEach(r=>{(by[r.st.l.plate]=by[r.st.l.plate]||[]).push(r)});
+  L.push("FITTED BY TRUCK AND TRAILER");
+  if(!fit.length)L.push("None");
+  Object.keys(by).sort().forEach(p=>{L.push((by[p][0].st.l.kind==="Trailer"?"TRAILER ":"TRUCK ")+p+(by[p][0].st.l.hitch?" (with "+by[p][0].st.l.hitch+")":"")+" ("+by[p].length+" tyres)");by[p].sort((a,b)=>a.st.l.pos.localeCompare(b.st.l.pos)).forEach(r=>L.push("  "+r.st.l.pos+": "+nm(r)+(r.st.l.temp?" [TEMPORARY, replacing "+(r.st.l.repl||"?")+"]":"")))});
+  L.push("");
+  const old=fit.filter(r=>{const d=lastAct(r.t);return !d||(Date.now()-Date.parse(d))/864e5>30});
+  L.push("NEEDS INSPECTION (nothing recorded in 30+ days)");
+  if(!old.length)L.push("None");
+  old.forEach(r=>{const d=lastAct(r.t);L.push("  "+nm(r)+" on "+r.st.l.plate+" "+r.st.l.pos+" - last activity "+(d||"never"))});
+  L.push("");
+  if(!P){
+    const rt=R.filter(r=>r.st.k==="retread");L.push("AT RETREAD");if(!rt.length)L.push("None");rt.forEach(r=>{const o=moves(r.t).slice(-1)[0];L.push("  "+nm(r)+" - sent "+(o.date||"?"))});L.push("");
+    const sr=R.filter(r=>r.st.k==="store");L.push("IN STORE ("+sr.length+")");sr.forEach(r=>L.push("  "+nm(r)+(r.sx.rt?" - retreads: "+r.sx.rt:"")));L.push("");
+    L.push("COST PER KM (finished tyres)");let any=false;
+    R.filter(r=>r.st.k==="final"&&r.sx.km>0).forEach(r=>{const c=(Number(r.t.cost)||0)+moves(r.t).reduce((a,x)=>a+(x.type==="ret"?Number(x.cost)||0:0),0);any=true;L.push("  "+nm(r)+": "+r.sx.km+" km, cost "+c+", "+(c/r.sx.km).toFixed(2)+" per km")});
+    if(!any)L.push("No finished tyres with km recorded yet");
+    L.push("");L.push("Total purchase cost of all tyres: "+R.reduce((a,r)=>a+(Number(r.t.cost)||0),0));
+  }
+  return L.join("\n");
+}
+function showReport(){
+  const r=$("#rpt");
+  if(r.innerHTML){r.innerHTML="";return}
+  r.innerHTML=`<div class="card"><div class="top"><h2 style="margin:0">Report</h2><button class="s" onclick="showReport()">Close report</button></div>
+  <div class="bar"><input id="rp_plate" placeholder="Truck plate (leave empty for the full report)" oninput="refReport()"><button onclick="copyReport()">Copy text</button><button class="s" onclick="pdfReport()">Download PDF</button></div>
+  <textarea id="rp_out" readonly style="margin-top:10px;min-height:420px;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace"></textarea>
+  <p class="sub" style="margin:8px 0 0">Built from the latest data each time you open or edit it. Paste the text into WhatsApp to share it.</p></div>`;
+  refReport();
+}
+function refReport(){rptText=buildReport(v("rp_plate"));const o=document.getElementById("rp_out");if(o)o.value=rptText}
+async function copyReport(){
+  const o=document.getElementById("rp_out");
+  try{await navigator.clipboard.writeText(rptText);toast("Copied. Paste it into WhatsApp.")}catch(e){o.focus();o.select();toast("Text selected. Press Copy on your phone or Ctrl+C.")}
+}
+async function pdfReport(){
+  try{
+    const J=window.jspdf&&window.jspdf.jsPDF;if(!J)throw new Error("lib");
+    const doc=new J({unit:"pt",format:"a4"});doc.setFontSize(9);
+    const W=doc.internal.pageSize.getWidth()-80,H=doc.internal.pageSize.getHeight()-50;
+    const HD=["TYRE REPORT","SUMMARY","FITTED BY TRUCK","NEEDS INSPECTION","AT RETREAD","IN STORE","COST PER KM"];
+    let y=50;
+    buildReport(v("rp_plate")).split("\n").forEach(raw=>{
+      const b=HD.some(h=>raw.startsWith(h));
+      doc.setFont("courier",b?"bold":"normal");
+      doc.splitTextToSize(raw||" ",W).forEach(p=>{if(y>H){doc.addPage();y=50}doc.text(p,40,y);y+=13});
+    });
+    doc.save("tyre-report-"+today()+".pdf");
+  }catch(e){if(!e||e.code!=="declined")toast("Could not make the PDF. Use Copy text instead.")}
+}
+$("#rep").onclick=showReport;
+$("#go").onclick=find;
+$("#q").addEventListener("keydown",e=>{if(e.key==="Enter")find()});
+render();
+function snap(s){
+  tyres={};s.docs.forEach(d=>{tyres[d.id]=d.data()});ready=true;
+  const a=document.activeElement;
+  if(a&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)&&a.id!=="q"&&cur)return;
+  render();
+}
+function start(db){col=db.collection("tyres");col.onSnapshot(snap,e=>{ready=true;render();toast("Could not read data: "+(e.message||e.code))})}
+function localDB(){
+  const K="tyre_records_v1",ld=()=>JSON.parse(localStorage.getItem(K)||"{}"),sv=o=>localStorage.setItem(K,JSON.stringify(o));let cb=null;
+  const fire=()=>{if(cb){const o=ld();cb({docs:Object.keys(o).map(id=>({id,data:()=>o[id]}))})}};
+  return {collection:()=>({
+    doc:id=>({set:async d=>{const o=ld();o[id]=d;sv(o);fire()},update:async p=>{const o=ld();o[id]=Object.assign(o[id]||{},p);sv(o);fire()}}),
+    onSnapshot:f=>{cb=f;fire()}})};
+}
+function loadJS(src){return new Promise((ok,no)=>{const e=document.createElement("script");e.src=src;e.onload=ok;e.onerror=no;document.head.appendChild(e)})}
+let auth=null;
+async function doLogin(){
+  try{await auth.signInWithEmailAndPassword(v("l_email"),v("l_pass"))}catch(e){toast("Sign-in failed: "+(e.message||e.code))}
+}
+(async()=>{
+  render();
+  const cfg=window.FIREBASE_CONFIG;
+  if(!cfg){start(localDB());toast("Local mode: data is saved on this device only. See README to share it.");return}
+  try{
+    const B="https://www.gstatic.com/firebasejs/10.12.2/";
+    await loadJS(B+"firebase-app-compat.js");await loadJS(B+"firebase-auth-compat.js");await loadJS(B+"firebase-firestore-compat.js");
+    firebase.initializeApp(cfg);auth=firebase.auth();const fs=firebase.firestore();
+    auth.onAuthStateChanged(u=>{
+      $("#login").style.display=u?"none":"block";
+      if(u&&!col)start(fs);
+      if(!u){col=null;tyres={};ready=false;render()}
+    });
+  }catch(e){ready=true;render();toast("Could not connect to Firebase. Check config.js.")}
+})();
+</script>
+</body>
+</html>
