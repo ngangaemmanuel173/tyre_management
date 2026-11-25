@@ -387,14 +387,48 @@ function showReport(){
   if(r.innerHTML){r.innerHTML="";return}
   r.innerHTML=`<div class="card"><div class="top"><h2 style="margin:0">Report</h2><button class="s" onclick="showReport()">Close report</button></div>
   <div class="bar"><input id="rp_plate" placeholder="Plate / fleet no. (leave empty for the full report)" oninput="refReport()"><button onclick="copyReport()">Copy text</button><button class="s" onclick="pdfReport()">Download PDF</button></div>
+  <div class="bar" style="margin-top:8px"><input type="month" id="rp_month"><button onclick="costExcel()">Download monthly tyre cost (Excel)</button></div>
   <textarea id="rp_out" readonly style="margin-top:10px;min-height:420px;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace"></textarea>
   <p class="sub" style="margin:8px 0 0">Built from the latest data each time you open or edit it. Paste the text into WhatsApp to share it.</p></div>`;
+  document.getElementById("rp_month").value=today().slice(0,7);
   refReport();
 }
 function refReport(){rptText=buildReport(v("rp_plate"));const o=document.getElementById("rp_out");if(o)o.value=rptText}
 async function copyReport(){
   const o=document.getElementById("rp_out");
   try{await navigator.clipboard.writeText(rptText);toast("Copied. Paste it into WhatsApp.")}catch(e){o.focus();o.select();toast("Text selected. Press Copy on your phone or Ctrl+C.")}
+}
+// ---- Monthly tyre cost for the company report (Excel) ----
+// Each cost is given to the truck the tyre was on: purchase = first truck it was fitted to, retread = truck it came off before retread,
+// repair/event = the truck it was on at that date. No truck found = "UNASSIGNED".
+function costRows(month){
+  const rows=[];
+  Object.keys(tyres).forEach(id=>{
+    const t=tyres[id],mv=moves(t);
+    const plateBefore=i=>{for(let k=Math.min(i,mv.length)-1;k>=0;k--)if(mv[k].plate)return mv[k].plate;return ""};
+    const plateAt=d=>{let p="";mv.forEach(m=>{if(m.plate&&(m.date||"")<=d)p=m.plate});return p};
+    const add=(date,plate,kind,desc,amt)=>{amt=Number(amt)||0;if(amt>0&&(date||"").slice(0,7)===month)rows.push({date,plate:plate||"UNASSIGNED",serial:t.serial||"",brand:t.brand||"",size:t.size||"",kind,desc,amt})};
+    const first=mv.find(m=>m.type==="fit"&&m.plate);
+    add(t.received,first?first.plate:"","Purchase",[t.supplier,t.invoice?"Inv "+t.invoice:""].filter(Boolean).join(" · "),t.cost);
+    mv.forEach((m,i)=>{if(m.type==="ret")add(m.date,plateBefore(i),"Retread",m.note||"",m.cost)});
+    (t.events||[]).forEach(e=>add(e.date,plateAt(e.date||""),"Repair / event",[e.evt,e.note].filter(Boolean).join(" · "),e.cost));
+  });
+  return rows.sort((a,b)=>(a.plate+a.date).localeCompare(b.plate+b.date));
+}
+async function costExcel(){
+  const month=v("rp_month");if(!month){toast("Pick a month first.");return}
+  const R=costRows(month);if(!R.length){toast("No tyre costs recorded for "+month+".");return}
+  try{
+    if(!window.XLSX)await loadJS("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js");
+    const by={};R.forEach(r=>{const o=by[r.plate]=by[r.plate]||{Truck:r.plate,Purchase:0,Retread:0,"Repair / event":0,Total:0};o[r.kind]+=r.amt;o.Total+=r.amt});
+    const sum=Object.keys(by).sort().map(k=>by[k]);
+    const tot={Truck:"TOTAL",Purchase:0,Retread:0,"Repair / event":0,Total:0};sum.forEach(o=>["Purchase","Retread","Repair / event","Total"].forEach(k=>tot[k]+=o[k]));sum.push(tot);
+    const det=R.map(r=>({Month:month,Date:r.date,Truck:r.plate,"Tyre serial":r.serial,Brand:r.brand,Size:r.size,"Cost type":r.kind,Details:r.desc,Amount:r.amt}));
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(sum),"Summary");
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(det),"Details");
+    XLSX.writeFile(wb,"tyre-costs-"+month+".xlsx");
+  }catch(e){toast("Could not make the Excel file. Check your internet and try again.")}
 }
 async function pdfReport(){
   try{
@@ -437,22 +471,23 @@ function localDB(){
 }
 function supaDB(c){
   const T="tyre_records";
+  let reload=null; // refreshes the screen right after a save, even if live updates are slow
   return {collection:()=>({
     doc:id=>({
-      set:async d=>{const r=await c.from(T).upsert({id,data:d});if(r.error)throw r.error},
+      set:async d=>{const r=await c.from(T).upsert({id,data:d});if(r.error)throw r.error;if(reload)reload()},
       update:async f=>{
         for(let k=0;k<4;k++){
           const g=await c.from(T).select("data,updated_at").eq("id",id).single();if(g.error)throw g.error;
           const p=typeof f==="function"?f(g.data.data):f;
           const r=await c.from(T).update({data:Object.assign({},g.data.data,p),updated_at:new Date().toISOString()}).eq("id",id).eq("updated_at",g.data.updated_at).select("id");
-          if(r.error)throw r.error;if(r.data&&r.data.length)return;
+          if(r.error)throw r.error;if(r.data&&r.data.length){if(reload)reload();return}
         }
         throw new Error("Someone else changed this tyre at the same time. Please try again.");
       },
-      delete:async()=>{const r=await c.from(T).delete().eq("id",id);if(r.error)throw r.error}}),
+      delete:async()=>{const r=await c.from(T).delete().eq("id",id);if(r.error)throw r.error;if(reload)reload()}}),
     onSnapshot:(f,err)=>{
       const load=async()=>{const r=await c.from(T).select("id,data");if(r.error){err&&err(r.error);return}f({docs:r.data.map(x=>({id:x.id,data:()=>x.data}))})};
-      load();
+      reload=load;load();setInterval(load,30000);
       c.channel("tyre-changes").on("postgres_changes",{event:"*",schema:"public",table:T},load).subscribe();
     }})};
 }
