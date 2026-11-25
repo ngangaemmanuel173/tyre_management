@@ -470,7 +470,9 @@ async function doLogin(){
   try{
     document.querySelector(".w").style.display="none";
     await loadJS("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js");
-    sb=supabase.createClient(cfg.url,cfg.anonKey);
+    // Keep the login only for this browser tab: opening the link again (new tab or after closing the browser) shows the sign-in page.
+    // To stay signed in on the device instead, delete the option object and keep only (cfg.url,cfg.anonKey).
+    sb=supabase.createClient(cfg.url,cfg.anonKey,{auth:{storage:window.sessionStorage}});
     const go=sess=>{
       me=sess&&sess.user?sess.user.email:null;
       $("#lp").style.display=sess?"none":"flex";document.querySelector(".w").style.display=sess?"":"none";$("#so").style.display=sess?"":"none";
