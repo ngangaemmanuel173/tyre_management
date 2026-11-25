@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Tyre Records</title>
+<title>Tyre Management</title>
 <style>
 :root{--bg:#f5f8f9;--card:#fff;--ink:#1b2a33;--mute:#4a5a63;--line:#c3d0d6;--acc:#0f4c5c;--accink:#fff;--ok:#1d6b3a;--warn:#8a5a00;--bad:#a12626;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10181c;--card:#18242a;--ink:#e6eef1;--mute:#a3b4bb;--line:#33454d;--acc:#5fb4c9;--accink:#08222a;--ok:#6fd195;--warn:#f0c15a;--bad:#ff8a8a}}
@@ -26,16 +26,50 @@ label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600;
 th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;white-space:nowrap}th{background:var(--bg)}
 .top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .row{margin-top:10px}.lnk{cursor:pointer;color:var(--acc);font-weight:600;text-decoration:underline}
-#msg{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:12px;border-radius:8px;display:none;z-index:5}
+#msg{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:12px;border-radius:8px;display:none;z-index:20}
+
+#lp{display:none;position:fixed;inset:0;z-index:10;background:var(--bg);overflow:auto;flex-wrap:wrap}
+.lp-art{flex:1 1 420px;min-height:340px;box-sizing:border-box;background:linear-gradient(160deg,#0f4c5c,#0a2a33);color:#fff;display:flex;flex-direction:column;justify-content:center;padding:calc(40px + env(safe-area-inset-top,0px)) 40px 40px}
+.lp-art h2{font-size:30px;margin:0 0 8px;color:#fff;text-transform:none;letter-spacing:-.01em}
+.lp-art p{margin:0 0 18px;max-width:380px;color:rgba(255,255,255,.88);font-size:16px}
+.lp-art ul{margin:0;padding:0;list-style:none;display:grid;gap:8px;color:rgba(255,255,255,.88)}
+.lp-art li:before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#7fd0e3;margin-right:10px}
+.tyre{width:190px;height:190px;margin-bottom:24px}
+.spin{transform-box:fill-box;transform-origin:center;animation:sp 40s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.lp-form{flex:1 1 380px;display:flex;align-items:center;justify-content:center;padding:32px 20px calc(32px + env(safe-area-inset-bottom,0px))}
+.lp-card{width:100%;max-width:380px;display:flex;flex-direction:column;gap:14px}
+.lp-card h2{font-size:26px;margin:0;color:var(--ink);text-transform:none;letter-spacing:-.01em}
+.lp-card button{width:100%}
+.eyebrow{font-size:12px;letter-spacing:.12em;font-weight:700;color:var(--acc)}
+#l_err{color:var(--bad);min-height:20px;margin:0;font-size:14px}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
+<div id="lp">
+<div class="lp-art">
+<svg viewBox="0 0 200 200" class="tyre" role="img" aria-label="Tyre"><g class="spin"><circle cx="100" cy="100" r="88" fill="none" stroke="#0a1115" stroke-width="22"/><circle cx="100" cy="100" r="88" fill="none" stroke="#3a5a67" stroke-width="22" stroke-dasharray="15 8.04"/><circle cx="100" cy="100" r="72" fill="#16242b" stroke="#0a1115" stroke-width="2"/><circle cx="100" cy="100" r="46" fill="#cdd9de"/><circle cx="100" cy="100" r="40" fill="#8aa0a9"/><circle cx="100" cy="100" r="12" fill="#16242b"/><circle cx="126.0" cy="100.0" r="4" fill="#16242b"/><circle cx="113.0" cy="122.5" r="4" fill="#16242b"/><circle cx="87.0" cy="122.5" r="4" fill="#16242b"/><circle cx="74.0" cy="100.0" r="4" fill="#16242b"/><circle cx="87.0" cy="77.5" r="4" fill="#16242b"/><circle cx="113.0" cy="77.5" r="4" fill="#16242b"/></g></svg>
+<h2>Tyre Management</h2>
+<p>Know where every tyre is, how far it has run and when it needs attention.</p>
+<ul><li>Trucks and trailers</li><li>Fitting, removal and retreads</li><li>Reports whenever you need them</li></ul>
+</div>
+<div class="lp-form"><form class="lp-card" onsubmit="doLogin();return false">
+<div class="eyebrow">TYRE MANAGEMENT SYSTEM</div><h2>Sign in</h2>
+<p class="sub" style="margin:0">Use the email and password given to you by your administrator.</p>
+<label>Email<input id="l_email" type="email" autocomplete="username" required></label>
+<label>Password<input id="l_pass" type="password" autocomplete="current-password" required></label>
+<label class="ck"><input type="checkbox" onchange="document.getElementById('l_pass').type=this.checked?'text':'password'">Show password</label>
+<p id="l_err" role="alert"></p>
+<button type="submit" id="l_btn">Sign in</button>
+<p class="sub" style="margin:0;font-size:13px">Forgot your password? Ask your administrator to reset it.</p>
+</form></div>
+</div>
 <div class="w">
-<h1>Tyre Records</h1>
+<div class="top"><h1>Tyre Management</h1><button class="s" id="so" style="display:none" onclick="sb.auth.signOut()">Sign out</button></div>
 <p class="sub">Type or scan a serial number. If the tyre exists, its card opens; if not, you can create it.</p>
 <div class="card"><div class="bar"><input id="q" placeholder="Serial number, e.g. DOT or TY-0001" autocomplete="off" autocapitalize="characters"><button id="go">Open tyre</button><button id="rep" class="s">Report</button></div></div>
-<div id="login" class="card" style="display:none"><h2>Sign in</h2><div class="g"><label>Email<input id="l_email" type="email" autocomplete="username"></label><label>Password<input id="l_pass" type="password" autocomplete="current-password"></label></div><div class="row"><button onclick="doLogin()">Sign in</button></div></div>
 <div id="rpt"></div>
 <div id="view"></div>
 <div id="list"></div>
@@ -296,8 +330,10 @@ function supaDB(c){
     }})};
 }
 async function doLogin(){
-  const r=await sb.auth.signInWithPassword({email:v("l_email"),password:v("l_pass")});
-  if(r.error)toast("Sign-in failed: "+r.error.message);
+  const b=$("#l_btn"),er=$("#l_err");er.textContent="";b.disabled=true;b.textContent="Signing in…";
+  const r=await sb.auth.signInWithPassword({email:v("l_email"),password:document.getElementById("l_pass").value});
+  b.disabled=false;b.textContent="Sign in";
+  if(r.error)er.textContent=/invalid login/i.test(r.error.message)?"Wrong email or password.":r.error.message;
 }
 (async()=>{
   render();
@@ -305,9 +341,10 @@ async function doLogin(){
   if(!cfg){start(localDB());toast("Local mode: data is saved on this device only. See README to share it.");return}
   try{
     await loadJS("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js");
+    document.querySelector(".w").style.display="none";
     sb=supabase.createClient(cfg.url,cfg.anonKey);
     const go=sess=>{
-      $("#login").style.display=sess?"none":"block";
+      $("#lp").style.display=sess?"none":"flex";document.querySelector(".w").style.display=sess?"":"none";$("#so").style.display=sess?"":"none";
       if(sess&&!col)start(supaDB(sb));
       if(!sess){col=null;tyres={};ready=false;render()}
     };
