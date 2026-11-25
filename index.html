@@ -79,10 +79,24 @@ th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;white-space:n
 <div id="msg"></div>
 <script src="config.js"></script>
 <script>
-const VEH={"10-wheel truck":{ax:3,steer:1,sp:["Spare 1","Spare 2"]},"22-wheel truck":{ax:6,steer:1,sp:["Spare 1","Spare 2"]},"Trailer":{ax:3,steer:0,sp:["Spare"]}};
-const VT=Object.keys(VEH),SIDES=["Left Outer","Left Inner","Right Inner","Right Outer"];
-function axPos(vt,a){return a<=VEH[vt].steer?["Axle "+a+" - Left","Axle "+a+" - Right"]:SIDES.map(x=>"Axle "+a+" - "+x)}
-function posList(vt){let p=[];for(let a=1;a<=VEH[vt].ax;a++)p=p.concat(axPos(vt,a));return p.concat(VEH[vt].sp)}
+// ---- TYRE POSITIONS: edit the names here ----
+// Each axle has 4 slots in table order [left outer, left inner, right inner, right outer]. Steer axles use only the two end slots.
+const steer=p=>({steer:1,s:[p+" LEFT HAND SIDE",null,null,p+" RIGHT HAND SIDE"],o:[p+" RIGHT HAND SIDE",p+" LEFT HAND SIDE"]});
+const diff=p=>({steer:0,s:[p+" LEFT OUTER",p+" LEFT INNER",p+" RIGHT INNER",p+" RIGHT OUTER"],o:[p+" LEFT INNER",p+" LEFT OUTER",p+" RIGHT INNER",p+" RIGHT OUTER"]});
+const SIDES=["Left Outer","Left Inner","Right Inner","Right Outer"];
+const ORD=["FIRST","SECOND","THIRD","FOURTH","FIFTH","SIXTH"];
+const VEH={
+ "10-wheel truck":{ax:[Object.assign(steer("FRONT"),{t:"FIRST AXLE"}),Object.assign(diff("FRONT DIFFERENTIAL"),{t:"SECOND AXLE"}),Object.assign(diff("REAR DIFFERENTIAL"),{t:"THIRD AXLE"})],sp:["Spare 1","Spare 2"]},
+ "22-wheel truck":{ax:[Object.assign(steer("FRONT"),{t:"FIRST AXLE"}),Object.assign(diff("FRONT DIFFERENTIAL"),{t:"SECOND AXLE"})].concat([3,4,5,6].map(n=>Object.assign(diff(ORD[n-1]+" AXLE"),{t:ORD[n-1]+" AXLE"}))),sp:["Spare 1","Spare 2"]},
+ "Trailer":{ax:[1,2,3].map(n=>{const q=SIDES.map(x=>"Axle "+n+" - "+x);return {steer:0,t:"Axle "+n,s:q,o:q}}),sp:["Spare"]}
+};
+const VT=Object.keys(VEH);
+function axPos(vt,a){return VEH[vt].ax[a-1].o}
+function posList(vt){let p=[];for(let a=1;a<=VEH[vt].ax.length;a++)p=p.concat(axPos(vt,a));return p.concat(VEH[vt].sp)}
+// older records saved as "Axle 2 - Left Outer" are mapped to the new names automatically
+function canon(vt,pos){const m=/^Axle (\d+) - (Left|Right)( Inner| Outer)?$/i.exec(pos||"");if(!m||vt==="Trailer"||!VEH[vt])return pos;
+ const ax=VEH[vt].ax[+m[1]-1];if(!ax)return pos;const side=m[2][0].toUpperCase()+m[2].slice(1).toLowerCase(),k=m[3]?side+m[3].replace(/^ (.)/,(x,c)=>" "+c.toUpperCase()):side;
+ const i={"Left":0,"Right":3,"Left Outer":0,"Left Inner":1,"Right Inner":2,"Right Outer":3}[k];return (ax.s[i]||pos)}
 const vtm=x=>x.vt||(x.kind==="Trailer"?"Trailer":"10-wheel truck");
 const EVT=["Inspection","Rotation","Puncture repair","Pressure check","Other"];
 const REASON=["Worn out","Puncture","Sidewall damage","Uneven wear","Temporary removal","Sent for retread","Other"];
@@ -108,7 +122,8 @@ function moves(t){
   return m;
 }
 function state(t){
-  const l=moves(t).slice(-1)[0];
+  let l=moves(t).slice(-1)[0];
+  if(l&&l.pos)l=Object.assign({},l,{pos:canon(vtm(l),l.pos)});
   if(!l)return {k:"store",txt:"In store",c:"var(--warn)"};
   if(l.type==="fit")return {k:"fitted",txt:`Fitted: ${l.plate}, ${l.pos}${l.temp?" (temporary)":""}`,c:"var(--ok)",l};
   if(l.type==="ret")return {k:"store",txt:"In store (retreaded)",c:"var(--warn)"};
@@ -287,10 +302,9 @@ function vehRender(){
   if(!P){o.innerHTML=`<p class="sub">Type a plate to see its tyres by position.</p>`;return}
   const cell=pos=>{const c=occInfo(P,pos);if(!c)return `<span class="sub">empty</span>`;const lt=lowT(c.t);return `<span class="lnk" onclick="openTyre('${c.id}')">${esc(c.t.serial)}</span>${c.l.temp?" (temp)":""}${lt?`<br><small style="color:var(--bad)">${lt.x} mm LOW</small>`:(lastTread(c.t)?`<br><small>${lastTread(c.t).x} mm</small>`:"")}`};
   let h=`<div class="tw"><table><tr><th>Axle</th>${SIDES.map(s=>`<th>${s}</th>`).join("")}</tr>`;
-  for(let a=1;a<=VEH[vt].ax;a++){
-    const ps=axPos(vt,a);
-    h+=`<tr><th>Axle ${a}${a<=VEH[vt].steer?" (steer)":""}</th>`+(ps.length===2?`<td>${cell(ps[0])}</td><td></td><td></td><td>${cell(ps[1])}</td>`:ps.map(p=>`<td>${cell(p)}</td>`).join(""))+`</tr>`;
-  }
+  VEH[vt].ax.forEach(ax=>{
+    h+=`<tr><th>${ax.t}${ax.steer?" (steer)":""}</th>`+ax.s.map(p=>`<td>${p?cell(p):""}</td>`).join("")+`</tr>`;
+  });
   h+=VEH[vt].sp.map(sp=>`<tr><th>${sp}</th><td colspan="4">${cell(sp)}</td></tr>`).join("")+`</table></div>`;
   const all=posList(vt),n=all.filter(p=>occInfo(P,p)).length;
   const other=Object.keys(tyres).map(i=>({i,s:state(tyres[i])})).filter(x=>x.s.k==="fitted"&&x.s.l.plate===P&&!all.includes(x.s.l.pos));
@@ -300,8 +314,8 @@ function vehRender(){
 function showImp(){
   const r=$("#imp");if(r.innerHTML){r.innerHTML="";return}
   r.innerHTML=`<div class="card"><div class="top"><h2 style="margin:0">Import tyres you already have</h2><button class="s" onclick="showImp()">Close</button></div>
-  <p class="sub">One tyre per line, separated by commas: serial, brand, size, type, plate, vehicle type, position, odometer. Leave plate empty for a tyre in store. Positions are written like “Axle 2 - Left Outer”. Vehicle types: ${VT.join(", ")}.</p>
-  <textarea id="im_t" rows="9" placeholder="DOT1234, Bridgestone R150, 11R22.5, New, KCA 123X, 10-wheel truck, Axle 1 - Left, 120500&#10;DOT5678, Michelin, 11R22.5, Retread, , , ,"></textarea>
+  <p class="sub">One tyre per line, separated by commas: serial, brand, size, type, plate, vehicle type, position, odometer. Leave plate empty for a tyre in store. Positions are written exactly as in the Position list, for example “FRONT DIFFERENTIAL LEFT OUTER”. Vehicle types: ${VT.join(", ")}.</p>
+  <textarea id="im_t" rows="9" placeholder="DOT1234, Bridgestone R150, 11R22.5, New, KCA 123X, 10-wheel truck, FRONT LEFT HAND SIDE, 120500&#10;DOT5678, Michelin, 11R22.5, Retread, , , ,"></textarea>
   <div class="row"><button onclick="doImport()">Import</button></div><pre id="im_o" style="white-space:pre-wrap;font-size:13px"></pre></div>`;
 }
 async function doImport(){
@@ -319,7 +333,7 @@ async function doImport(){
     if(plate){
       const vt=VT.find(x=>x.toLowerCase()===vtx.toLowerCase());
       if(!vt){errs.push(L+"vehicle type must be one of: "+VT.join(", "));continue}
-      const pos=posList(vt).find(p=>norm(p)===norm(posx));
+      const pos=posList(vt).find(p=>norm(p)===norm(canon(vt,posx)));
       if(!pos){errs.push(L+"position “"+posx+"” not valid for a "+vt);continue}
       const P=plate.toUpperCase(),tk=P+"|"+pos;
       if(taken[tk]||occInfo(P,pos)){errs.push(L+pos+" on "+P+" is already taken");continue}
