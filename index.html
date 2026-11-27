@@ -87,7 +87,6 @@ const SIDES=["Left Outer","Left Inner","Right Inner","Right Outer"];
 const ORD=["FIRST","SECOND","THIRD","FOURTH","FIFTH","SIXTH"];
 const VEH={
  "10-wheel truck":{ax:[Object.assign(steer("FRONT"),{t:"FIRST AXLE"}),Object.assign(diff("FRONT DIFFERENTIAL"),{t:"SECOND AXLE"}),Object.assign(diff("REAR DIFFERENTIAL"),{t:"THIRD AXLE"})],sp:["Spare 1","Spare 2"]},
- "22-wheel truck":{ax:[Object.assign(steer("FRONT"),{t:"FIRST AXLE"}),Object.assign(diff("FRONT DIFFERENTIAL"),{t:"SECOND AXLE"})].concat([3,4,5,6].map(n=>Object.assign(diff(ORD[n-1]+" AXLE"),{t:ORD[n-1]+" AXLE"}))),sp:["Spare 1","Spare 2"]},
  "Trailer":{ax:[1,2,3].map(n=>{const q=SIDES.map(x=>"Axle "+n+" - "+x);return {steer:0,t:"Axle "+n,s:q,o:q}}),sp:["Spare"]}
 };
 const VT=Object.keys(VEH);
